@@ -1,60 +1,56 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from passlib.hash import pbkdf2_sha256
+from jose import jwt
+
+SECRET_KEY = "thisissecret"
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://post:12345@localhost:5432/TZ_test'
 db = SQLAlchemy(app)
-
-
+token = ''
 
 
 class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), nullable=False)
-    password = db.Column(db.String(80), nullable=False)
-    login = db.Column(db.String(120), nullable=False)
-    boolean = db.Column(db.Boolean(), nullable=False)
+    password = db.Column(db.String(), nullable=False)
+    username = db.Column(db.String(120), primary_key=True)
 
-    def __init__(self, email, password, login, boolean):
-        self.email = email
+    def __init__(self, password, username):
         self.password = password
-        self.login = login
-        self.boolean = boolean
+        self.username = username
 
-    def to_json(self):
-        return{"email":self.email, "password":self.password, 
-               "login": self.login, "boolean": self.boolean}
-
-@app.route('/users', methods=['POST'])
-def create_user():
-    email = request.json['email']
+@app.route('/register', methods=['POST'])
+def register():
+    '''{"username": "string", "password": "string"}'''
     password = request.json['password']
-    login = request.json['login']
-    boolean = request.json['boolean']
-    new_user = User(email, password, login, boolean)
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify(new_user.to_json())
-
-@app.route('/users/id/<id>', methods=['GET'])
-def read(id):
-    try:
-        user = User.query.get(id)
-        return jsonify(user.to_json())
-    except:
-        return jsonify({'message': 'User not found'})
+    username = request.json['username']
+    if username in User.query.all():
+        return jsonify({'message': 'User already exists'})
+    else:
+        hash_password = pbkdf2_sha256.hash(password)
+        new_user = User(hash_password, username)
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"message": "User registered successfully"})
     
-@app.route('/users/email/<email>', methods=['GET'])
-def read_email(email):
-    try:
-        user = User.query.filter_by(email = email).first()
-        return jsonify(user.to_json())
-    except:
-        return jsonify({'message': 'User not found'})
-    
-@app.route('/users', methods=['GET'])
-def read_all():
-    users = User.query.all()
-    return jsonify([e.to_json() for e in users])
+@app.route('/login', methods=['POST'])
+def login():
+    '''{"username": "string", "password": "string"}'''
+    global token
+    password = request.json['password']
+    username = request.json['username']
+    if User.query.filter_by(username = username).first() != None:
+        user = User.query.filter_by(username = username).first()
+        if pbkdf2_sha256.verify(password, user.password):
+            token = jwt.encode({"username": username}, SECRET_KEY, algorithm='HS256')
+            return jsonify({"access_token": "string","token_type": "bearer"})
+        else:
+            return jsonify({'message': 'Wrong password'})
+    else: return jsonify({'message':"Invalid username or password"})
+        
+@app.route('/users/me', methods=['GET'])
+def me():
+    global token
+    return jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
 
 if __name__ == '__main__':
     with app.app_context():
